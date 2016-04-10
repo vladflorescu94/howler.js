@@ -1,7 +1,7 @@
 /*!
  *  Effects Plugin - Adds advanced Web Audio API functionality.
  *  
- *  howler.js v2.0.0-beta8
+ *  howler.js v2.0.0-beta11
  *  howlerjs.com
  *
  *  (c) 2013-2016, James Simpson of GoldFire Studios
@@ -442,7 +442,7 @@
    *                      `coneOuterGain` outside this angle.
    *     coneOuterGain - (0 by default) The amount of volume reduction outside of `coneOuterAngle`.
    *     distanceModel - ('inverse' by default) Determines algorithm to use to reduce volume as audio moves
-   *                      away from listener. Can be `linear`, `inverse` or `exponential.
+   *                      away from listener. Can be `linear`, `inverse` or `exponential`.
    *     maxDistance - (10000 by default) Volume won't reduce between source/listener beyond this distance.
    *     panningModel - ('HRTF' by default) Determines which spatialization algorithm is used to position audio.
    *                     Can be `HRTF` or `equalpower`.
