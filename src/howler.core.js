@@ -495,9 +495,12 @@
     /**
      * Play a sound or resume previous playback.
      * @param  {String/Number} sprite Sprite name for sprite playback or sound id to continue previous.
+     * @param  {Number}        timeout Time offset before start playing.
      * @return {Number}        Sound ID.
      */
-    play: function(sprite) {
+    play: function(sprite, timeout) {
+      timeout = timeout || 0;
+
       var self = this;
       var args = arguments;
       var id = null;
@@ -506,7 +509,7 @@
       if (typeof sprite === 'number') {
         id = sprite;
         sprite = null;
-      } else if (typeof sprite === 'undefined') {
+      } else if (sprite === null || typeof sprite === 'undefined') {
         // Use the default sound sprite (plays the full audio length).
         sprite = '__default';
 
@@ -546,7 +549,7 @@
         self._queue.push({
           event: 'play',
           action: function() {
-            self.play(self._soundById(sound._id) ? sound._id : undefined);
+            self.play(self._soundById(sound._id) ? sound._id : undefined, timeout);
           }
         });
 
@@ -571,13 +574,13 @@
       }
 
       // Determine how long to play for and where to start playing.
-      var seek = sound._seek > 0 ? sound._seek : self._sprite[sprite][0] / 1000;
-      var duration = ((self._sprite[sprite][0] + self._sprite[sprite][1]) / 1000) - seek;
+      var seek = (sound._seek > 0 ? sound._seek : self._sprite[sprite][0] / 1000);
+      var duration = ((self._sprite[sprite][0] + self._sprite[sprite][1]) / 1000);
 
       // Create a timer to fire at the end of playback or the start of a new loop.
-      var timeout = (duration * 1000) / Math.abs(sound._rate);
-      if (timeout !== Infinity) {
-        self._endTimers[sound._id] = setTimeout(self._ended.bind(self, sound), timeout);
+      var timerTimeout = (duration * 1000) / Math.abs(sound._rate);
+      if (timerTimeout !== Infinity) {
+        self._endTimers[sound._id] = setTimeout(self._ended.bind(self, sound), timerTimeout);
       }
 
       // Update the parameters of the sound
@@ -585,8 +588,8 @@
       sound._ended = false;
       sound._sprite = sprite;
       sound._seek = seek;
-      sound._start = self._sprite[sprite][0] / 1000;
-      sound._stop = (self._sprite[sprite][0] + self._sprite[sprite][1]) / 1000;
+      sound._start = self._sprite[sprite][0] / 1000 + timeout;
+      sound._stop = (self._sprite[sprite][0] + self._sprite[sprite][1]) / 1000 + timeout;
       sound._loop = !!(sound._loop || self._sprite[sprite][2]);
 
       // Begin the actual playback.
@@ -598,19 +601,21 @@
 
           // Setup the playback params.
           var vol = (sound._muted || self._muted) ? 0 : sound._volume * Howler.volume();
-          node.gain.setValueAtTime(vol, ctx.currentTime);
-          sound._playStart = ctx.currentTime;
+          node.gain.setValueAtTime(vol, ctx.currentTime + timeout);
+          sound._playStart = ctx.currentTime + timeout;
 
           // Play the sound using the supported method.
           if (typeof node.bufferSource.start === 'undefined') {
-            sound._loop ? node.bufferSource.noteGrainOn(0, seek, 86400) : node.bufferSource.noteGrainOn(0, seek, duration);
+            sound._loop ? node.bufferSource.noteGrainOn(sound._playStart, seek, 86400)
+                        : node.bufferSource.noteGrainOn(sound._playStart, seek, duration);
           } else {
-            sound._loop ? node.bufferSource.start(0, seek, 86400) : node.bufferSource.start(0, seek, duration);
+            sound._loop ? node.bufferSource.start(sound._playStart, seek, 86400)
+                        : node.bufferSource.start(sound._playStart, seek, duration);
           }
 
           // Start a new timer if none is present.
-          if (!self._endTimers[sound._id] && timeout !== Infinity) {
-            self._endTimers[sound._id] = setTimeout(self._ended.bind(self, sound), timeout);
+          if (!self._endTimers[sound._id] && timerTimeout !== Infinity) {
+            self._endTimers[sound._id] = setTimeout(self._ended.bind(self, sound), timerTimeout);
           }
 
           if (!args[1]) {
@@ -650,8 +655,8 @@
         } else {
           var listener = function() {
             // Setup the new end timer.
-            if (timeout !== Infinity) {
-              self._endTimers[sound._id] = setTimeout(self._ended.bind(self, sound), timeout);
+            if (timerTimeout !== Infinity) {
+              self._endTimers[sound._id] = setTimeout(self._ended.bind(self, sound), timerTimeout);
             }
 
             // Begin playback.
@@ -1428,9 +1433,9 @@
 
     /**
      * Emit all events of a specific type and pass the sound id.
-     * @param  {String} event Event name.
-     * @param  {Number} id    Sound ID.
-     * @param  {Number} msg   Message to go with event.
+     * @param  {String} event       Event name.
+     * @param  {Number} id          Sound ID.
+     * @param  {Number} msg         Message to go with event.
      * @return {Howl}
      */
     _emit: function(event, id, msg) {
