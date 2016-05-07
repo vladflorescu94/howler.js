@@ -1299,7 +1299,7 @@
 
           // Restart the playback if the sound was playing.
           if (playing) {
-            self.play(id, true);
+            self.play(id);
           }
 
           self._emit('seek', id);
