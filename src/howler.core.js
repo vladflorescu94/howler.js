@@ -1,5 +1,5 @@
 /*!
- *  howler.js v2.0.0-beta11
+ *  howler.js v2.0.0-beta12
  *  howlerjs.com
  *
  *  (c) 2013-2016, James Simpson of GoldFire Studios
@@ -36,11 +36,11 @@
       self._muted = false;
       self._volume = 1;
       self._canPlayEvent = 'canplaythrough';
-      self._navigator = (window && window.navigator) ? window.navigator : null;
+      self._navigator = (typeof window !== 'undefined' && window.navigator) ? window.navigator : null;
 
       // Public properties.
       self.masterGain = null;
-      self.noAudio = true;
+      self.noAudio = false;
       self.usingWebAudio = true;
       self.autoSuspend = true;
       self.ctx = null;
@@ -104,7 +104,7 @@
       self._muted = muted;
 
       // With Web Audio, we just need to mute the master gain.
-      if (usingWebAudio) {
+      if (Howler.usingWebAudio) {
         Howler.masterGain.gain.value = muted ? 0 : self._volume;
       }
 
@@ -141,10 +141,9 @@
 
       // Create a new AudioContext to make sure it is fully reset.
       if (self.usingWebAudio && typeof self.ctx.close !== 'undefined') {
-        self.ctx = null;
         self.ctx.close();
+        self.ctx = null;
         setupAudioContext();
-        self.ctx = ctx;
       }
 
       return self;
@@ -186,11 +185,16 @@
      */
     _setupCodecs: function() {
       var self = this || Howler;
-      var audioTest = new Audio();
+      var audioTest = (typeof Audio !== 'undefined') ? new Audio() : null;
+
+      if (!audioTest || typeof audioTest.canPlayType !== 'function') {
+        return self;
+      }
+
       var mpegTest = audioTest.canPlayType('audio/mpeg;').replace(/^no$/, '');
 
       // Opera version <33 has mixed MP3 support, so we need to check for and block it.
-      var checkOpera = Howler._navigator && Howler._navigator.userAgent.match(/OPR\/([0-6].)/g);
+      var checkOpera = self._navigator && self._navigator.userAgent.match(/OPR\/([0-6].)/g);
       var isOldOpera = (checkOpera && parseInt(checkOpera[0].split('/')[1], 10) < 33);
 
       self._codecs = {
@@ -221,10 +225,10 @@
     _enableMobileAudio: function() {
       var self = this || Howler;
 
-      // Only run this on iOS if audio isn't already eanbled.
-      var isMobile = /iPhone|iPad|iPod|Android|BlackBerry|BB10|Silk|Mobi/i.test(Howler._navigator && Howler._navigator.userAgent);
-      var isTouch = !!(('ontouchend' in window) || (Howler._navigator && Howler._navigator.maxTouchPoints > 0) || (Howler._navigator && Howler._navigator.msMaxTouchPoints > 0));
-      if (Howler.ctx && (self._mobileEnabled || !isMobile || !isTouch)) {
+      // Only run this on mobile devices if audio isn't already eanbled.
+      var isMobile = /iPhone|iPad|iPod|Android|BlackBerry|BB10|Silk|Mobi/i.test(self._navigator && self._navigator.userAgent);
+      var isTouch = !!(('ontouchend' in window) || (self._navigator && self._navigator.maxTouchPoints > 0) || (self._navigator && self._navigator.msMaxTouchPoints > 0));
+      if (self._mobileEnabled || !self.ctx || (!isMobile && !isTouch)) {
         return;
       }
 
@@ -233,22 +237,23 @@
       // Some mobile devices/platforms have distortion issues when opening/closing tabs and/or web views.
       // Bugs in the browser (especially Mobile Safari) can cause the sampleRate to change from 44100 to 48000.
       // By calling Howler.unload(), we create a new AudioContext with the correct sampleRate.
-      if (Howler.ctx.sampleRate !== 44100) {
-        Howler.unload();
+      if (!self._mobileUnloaded && self.ctx.sampleRate !== 44100) {
+        self._mobileUnloaded = true;
+        self.unload();
       }
 
       // Scratch buffer for enabling iOS to dispose of web audio buffers correctly, as per:
       // http://stackoverflow.com/questions/24119684
-      self._scratchBuffer = Howler.ctx.createBuffer(1, 1, 22050);
+      self._scratchBuffer = self.ctx.createBuffer(1, 1, 22050);
 
       // Call this method on touch start to create and play a buffer,
       // then check if the audio actually played to determine if
       // audio has now been unlocked on iOS, Android, etc.
       var unlock = function() {
         // Create an empty buffer.
-        var source = Howler.ctx.createBufferSource();
+        var source = self.ctx.createBufferSource();
         source.buffer = self._scratchBuffer;
-        source.connect(Howler.ctx.destination);
+        source.connect(self.ctx.destination);
 
         // Play the empty buffer.
         if (typeof source.start === 'undefined') {
@@ -604,13 +609,10 @@
 
       // Determine how long to play for and where to start playing.
       var seek = (sound._seek > 0 ? sound._seek : self._sprite[sprite][0] / 1000);
-      var duration = ((self._sprite[sprite][0] + self._sprite[sprite][1]) / 1000);
+      var duration = ((self._sprite[sprite][0] + self._sprite[sprite][1]) / 1000) - seek;
 
       // Create a timer to fire at the end of playback or the start of a new loop.
       var timerTimeout = (duration * 1000) / Math.abs(sound._rate);
-      if (timerTimeout !== Infinity) {
-        self._endTimers[sound._id] = setTimeout(self._ended.bind(self, sound), timerTimeout);
-      }
 
       // Update the parameters of the sound
       sound._paused = false;
@@ -643,7 +645,7 @@
           }
 
           // Start a new timer if none is present.
-          if (!self._endTimers[sound._id] && timerTimeout !== Infinity) {
+          if (timerTimeout !== Infinity) {
             self._endTimers[sound._id] = setTimeout(self._ended.bind(self, sound), timerTimeout);
           }
 
@@ -670,8 +672,15 @@
           node.muted = sound._muted || self._muted || Howler._muted || node.muted;
           node.volume = sound._volume * Howler.volume();
           node.playbackRate = sound._rate;
+
           setTimeout(function() {
             node.play();
+
+            // Setup the new end timer.
+            if (timeout !== Infinity) {
+              self._endTimers[sound._id] = setTimeout(self._ended.bind(self, sound), timeout);
+            }
+
             if (!args[1]) {
               self._emit('play', sound._id);
             }
@@ -684,11 +693,6 @@
           playHtml5();
         } else {
           var listener = function() {
-            // Setup the new end timer.
-            if (timerTimeout !== Infinity) {
-              self._endTimers[sound._id] = setTimeout(self._ended.bind(self, sound), timerTimeout);
-            }
-
             // Begin playback.
             playHtml5();
 
@@ -989,6 +993,10 @@
      */
     fade: function(from, to, len, id) {
       var self = this;
+      var diff = Math.abs(from - to);
+      var dir = from > to ? 'out' : 'in';
+      var steps = diff / 0.01;
+      var stepLen = len / steps;
 
       // If the sound hasn't loaded, add it to the load queue to fade when capable.
       if (self._state !== 'loaded') {
@@ -1018,52 +1026,46 @@
             self._stopFade(ids[i]);
           }
 
+          // If we are using Web Audio, let the native methods do the actual fade.
           if (self._webAudio && !sound._muted) {
             var currentTime = Howler.ctx.currentTime;
             var end = currentTime + (len / 1000);
             sound._volume = from;
             sound._node.gain.setValueAtTime(from, currentTime);
             sound._node.gain.linearRampToValueAtTime(to, end);
-
-            // Fire the event when complete.
-            sound._timeout = setTimeout(function(id, sound) {
-              delete sound._timeout;
-              setTimeout(function() {
-                sound._volume = to;
-                self._emit('fade', id);
-              }, end - Howler.ctx.currentTime > 0 ? Math.ceil((end - Howler.ctx.currentTime) * 1000) : 0);
-            }.bind(self, ids[i], sound), len);
-          } else {
-            var diff = Math.abs(from - to);
-            var dir = from > to ? 'out' : 'in';
-            var steps = diff / 0.01;
-            var stepLen = len / steps;
-
-            (function() {
-              var vol = from;
-              sound._interval = setInterval(function(id, sound) {
-                // Update the volume amount.
-                vol += (dir === 'in' ? 0.01 : -0.01);
-
-                // Make sure the volume is in the right bounds.
-                vol = Math.max(0, vol);
-                vol = Math.min(1, vol);
-
-                // Round to within 2 decimal points.
-                vol = Math.round(vol * 100) / 100;
-
-                // Change the volume.
-                self.volume(vol, id, true);
-
-                // When the fade is complete, stop it and fire event.
-                if (vol === to) {
-                  clearInterval(sound._interval);
-                  delete sound._interval;
-                  self._emit('fade', id);
-                }
-              }.bind(self, ids[i], sound), stepLen);
-            })();
           }
+
+          var vol = from;
+          sound._interval = setInterval(function(soundId, sound) {
+            // Update the volume amount.
+            vol += (dir === 'in' ? 0.01 : -0.01);
+
+            // Make sure the volume is in the right bounds.
+            vol = Math.max(0, vol);
+            vol = Math.min(1, vol);
+
+            // Round to within 2 decimal points.
+            vol = Math.round(vol * 100) / 100;
+
+            // Change the volume.
+            if (self._webAudio) {
+              if (typeof id === 'undefined') {
+                self._volume = vol;
+              }
+
+              sound._volume = vol;
+            } else {
+              self.volume(vol, soundId, true);
+            }
+
+            // When the fade is complete, stop it and fire event.
+            if (vol === to) {
+              clearInterval(sound._interval);
+              sound._interval = null;
+              self.volume(vol, soundId);
+              self._emit('fade', soundId);
+            }
+          }.bind(self, ids[i], sound), stepLen);
         }
       }
 
@@ -1080,14 +1082,13 @@
       var self = this;
       var sound = self._soundById(id);
 
-      if (sound._interval) {
+      if (sound && sound._interval) {
+        if (self._webAudio) {
+          sound._node.gain.cancelScheduledValues(Howler.ctx.currentTime);
+        }
+
         clearInterval(sound._interval);
-        delete sound._interval;
-        self._emit('fade', id);
-      } else if (sound._timeout) {
-        clearTimeout(sound._timeout);
-        delete sound._timeout;
-        sound._node.gain.cancelScheduledValues(Howler.ctx.currentTime);
+        sound._interval = null;
         self._emit('fade', id);
       }
 
@@ -1202,7 +1203,7 @@
             // Keep track of our position when the rate changed and update the playback
             // start position so we can properly adjust the seek position for time elapsed.
             sound._rateSeek = self.seek(id[i]);
-            sound._playStart = Howler.ctx.currentTime;
+            sound._playStart = self._webAudio ? Howler.ctx.currentTime : sound._playStart;
             sound._rate = rate;
 
             // Change the playback rate.
@@ -1293,6 +1294,7 @@
 
           // Move the position of the track and cancel timer.
           sound._seek = seek;
+          sound._ended = false;
           self._clearTimer(id);
 
           // Restart the playback if the sound was playing.
@@ -1340,15 +1342,21 @@
     },
 
     /**
-     * Get the duration of this sound.
-     * @param  {Number} id The sound id to check. If none is passed, first sound is used.
-     * @return {Number} Audio duration.
+     * Get the duration of this sound. Passing a sound id will return the sprite duration.
+     * @param  {Number} id The sound id to check. If none is passed, return full source duration.
+     * @return {Number} Audio duration in seconds.
      */
     duration: function(id) {
       var self = this;
-      var sound = self._soundById(id) || self._sounds[0];
+      var duration = self._duration;
 
-      return self._duration;
+      // If we pass an ID, get the sound and return the sprite length.
+      var sound = self._soundById(id);
+      if (sound) {
+        duration = self._sprite[sound._sprite][1] / 1000;
+      }
+
+      return duration;
     },
 
     /**
@@ -1377,8 +1385,8 @@
 
         // Remove the source or disconnect.
         if (!self._webAudio) {
-          // Set the source to an empty string to stop any downloading.
-          sounds[i]._node.src = '';
+          // Set the source to 0-second silence to stop any downloading.
+          sounds[i]._node.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
 
           // Remove any event listeners.
           sounds[i]._node.removeEventListener('error', sounds[i]._errorFn, false);
@@ -1440,10 +1448,11 @@
     off: function(event, fn, id) {
       var self = this;
       var events = self['_on' + event];
+      var i = 0;
 
       if (fn) {
         // Loop through event store and remove the passed function.
-        for (var i=0; i<events.length; i++) {
+        for (i=0; i<events.length; i++) {
           if (fn === events[i].fn && id === events[i].id) {
             events.splice(i, 1);
             break;
@@ -1455,7 +1464,7 @@
       } else {
         // Clear out all events of every type.
         var keys = Object.keys(self);
-        for (var i=0; i<keys.length; i++) {
+        for (i=0; i<keys.length; i++) {
           if ((keys[i].indexOf('_on') === 0) && Array.isArray(self[keys[i]])) {
             self[keys[i]] = [];
           }
@@ -1928,22 +1937,6 @@
     }
 
     if (/^data:[^;]+;base64,/.test(url)) {
-      // Setup polyfill for window.atob to support IE9.
-      // Modified from: https://github.com/davidchambers/Base64.js
-      window.atob = window.atob || function(input) {
-        var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
-        var str = String(input).replace(/=+$/, '');
-        for (
-          var bc = 0, bs, buffer, idx = 0, output = '';
-          buffer = str.charAt(idx++);
-          ~buffer && (bs = bc % 4 ? bs * 64 + buffer : buffer, bc++ % 4) ? output += String.fromCharCode(255 & bs >> (-2 * bc & 6)) : 0
-        ) {
-          buffer = chars.indexOf(buffer);
-        }
-
-        return output;
-      };
-
       // Decode the base64 data URI without XHR, since some browsers don't support it.
       var data = atob(url.split(',')[1]);
       var dataView = new Uint8Array(data.length);

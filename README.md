@@ -38,7 +38,7 @@ Several options to get up and running:
 * Clone the repo: `git clone https://github.com/goldfire/howler.js.git`
 * Install with [Bower](http://bower.io/): `bower install howler`
 * Install with [npm](https://www.npmjs.com/package/howler): `npm install howler`
-* Hosted CDN: [`cdnjs`](http://bower.io/) [`jsDelivr`](http://bower.io/)
+* Hosted CDN: [`cdnjs`](https://cdnjs.com/libraries/howler) [`jsDelivr`](https://www.jsdelivr.com/projects/howler.js)
 
 ### Examples
 
@@ -186,7 +186,7 @@ Check if a sound is currently playing or not, returns a `Boolean`. If no sound I
 
 #### duration([id])
 Get the duration of the audio source. Will return 0 until after the `load` event fires.
-* **id**: `Number` `optional` The sound ID to check. If none is passed, the first sound is checked.
+* **id**: `Number` `optional` The sound ID to check. Passing an ID will return the duration of the sprite being played on this instance; otherwise, the full source duration is returned.
 
 #### on(event, function, [id])
 Listen for events. Multiple events can be added by calling this multiple times.
